@@ -1,19 +1,19 @@
 module.exports = ({ env }) => ({
   email: {
     config: {
-      provider: '@strapi/provider-email-nodemailer',
+      provider: 'nodemailer',
       providerOptions: {
-        host: env('SMTP_HOST', 'smtp.gmail.com'),
-        port: env.int('SMTP_PORT', 465),
-        secure: env.bool('SMTP_SECURE', true),
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
         auth: {
-          user: env('SMTP_USERNAME'),
-          pass: env('SMTP_PASSWORD'),
+          user: env('SMTP_USERNAME'), // Your Gmail address
+          pass: env('SMTP_PASSWORD'), // Your Gmail app password
         },
       },
       settings: {
-        defaultFrom: env('DEFAULT_FROM_EMAIL', 'no-reply@yourdomain.com'),
-        defaultReplyTo: env('DEFAULT_REPLY_TO_EMAIL', 'support@yourdomain.com'),
+        defaultFrom: env('DEFAULT_FROM_EMAIL', 'your-email@gmail.com'),
+        defaultReplyTo: env('DEFAULT_REPLY_TO_EMAIL', 'your-email@gmail.com'),
       },
     },
   },
