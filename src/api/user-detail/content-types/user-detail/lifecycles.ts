@@ -43,65 +43,93 @@ function adminHtmlTemplate({ id, name, email, subject, message, logoUrl }: any) 
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>New Contact Form</title>
+  <style>
+    /* Email-safe helpers */
+    .wrap{width:100%;padding:28px 12px;background:#f6f7fb}
+    .card{max-width:680px;background:#0b0f14;border-radius:12px;overflow:hidden;color:#e6eef6}
+    .header{display:flex;align-items:center;gap:14px;padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.04)}
+    .logo{width:68px;border-radius:8px;display:block}
+    .title{font-weight:800;font-size:18px;margin:0;color:#ffffff}
+    .muted{color:#9aa6b2;font-size:13px;margin-top:4px}
+    .meta{font-size:12px;color:#94a3b8}
+    .body{padding:22px;background:linear-gradient(180deg,#071018 0%, #061019 100%)}
+    .subject{font-size:18px;font-weight:700;color:#f8fafc;margin:0 0 12px}
+    .grid{display:flex;gap:12px;flex-wrap:wrap}
+    .pill{flex:1;min-width:160px;background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;border:1px solid rgba(255,255,255,0.02)}
+    .pill .label{font-weight:700;color:#cfe9e8;font-size:13px;margin-bottom:6px}
+    .pill .value{color:#9fb6b5;font-size:14px}
+    .messageBox{margin-top:16px;padding:16px;border-radius:10px;background:linear-gradient(90deg,#0f172a 0%, #071018 100%);border-left:4px solid #f59e0b;color:#cbd5db;line-height:1.6}
+    .ctaRow{margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .btn{background:#0ea5a4;color:#fff;padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:700;display:inline-block}
+    .metaSmall{color:#94a3b8;font-size:13px}
+    .foot{padding:14px 22px;border-top:1px solid rgba(255,255,255,0.03);text-align:center;background:#061018;color:#7f99a6;font-size:13px}
+    @media (max-width:480px){ .grid{flex-direction:column} .logo{width:56px} .title{font-size:16px} .subject{font-size:16px} }
+  </style>
 </head>
-<body style="margin:0;background:${TOKENS.bg};font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${TOKENS.heading};-webkit-font-smoothing:antialiased;">
+<body style="margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
   ${headPre}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="wrap">
     <tr>
       <td align="center">
-        <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;background:${TOKENS.card};border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,0.06)">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px">
           <tr>
-            <td style="padding:20px 24px;border-bottom:1px solid ${TOKENS.subtle};display:flex;align-items:center;gap:12px">
-              <img src="${logoUrl}" alt="Yogesh Mishra Logo" width="72" style="height:auto;display:block;border:0;outline:none;text-decoration:none;border-radius:8px"/>
-              <div style="flex:1">
-                <div style="font-weight:700;font-size:16px;color:${TOKENS.heading};margin-bottom:2px">New Contact Form</div>
-                <div style="color:${TOKENS.muted};font-size:13px">A new submission was received</div>
-              </div>
-              <div style="text-align:right;color:${TOKENS.muted};font-size:12px">ID: <strong style="color:${TOKENS.heading}">${id}</strong></div>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding:22px">
-              <h2 style="margin:0 0 12px;font-size:18px;color:${TOKENS.heading};font-weight:700">${subject || 'Contact form submission'}</h2>
-
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-collapse:separate;row-gap:8px">
-                <tr>
-                  <td style="vertical-align:top;padding:10px 12px;border-radius:8px;background:#fbfdff;border:1px solid ${TOKENS.subtle};width:48%;font-size:14px">
-                    <div style="font-weight:600;color:${TOKENS.heading};margin-bottom:6px">Name</div>
-                    <div style="color:${TOKENS.muted}">${name || '—'}</div>
-                  </td>
-                  <td style="vertical-align:top;padding:10px 12px;border-radius:8px;background:#fbfdff;border:1px solid ${TOKENS.subtle};width:48%;font-size:14px">
-                    <div style="font-weight:600;color:${TOKENS.heading};margin-bottom:6px">Email</div>
-                    <div style="color:${TOKENS.muted}"><a href="mailto:${email}" style="color:${TOKENS.primary};text-decoration:none">${email || '—'}</a></div>
-                  </td>
-                </tr>
-              </table>
-
-              <div style="margin-top:18px;padding:16px;border-radius:10px;background:linear-gradient(90deg,#fff 0%, #fffbf5 100%);border-left:4px solid ${TOKENS.accent};color:#3b3b3b;line-height:1.6;font-size:14px">
-                <div style="font-weight:600;color:#7c3f00;margin-bottom:8px">Message</div>
-                <div>${safeMessage}</div>
+            <td class="card" style="background:#071018">
+              <!-- Header -->
+              <div class="header" style="display:block">
+                <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                  <tr>
+                    <td style="vertical-align:middle;padding:0 24px 0 24px">
+                      <img src="${logoUrl}" alt="logo" class="logo" />
+                    </td>
+                    <td style="vertical-align:middle;padding:0 24px">
+                      <div style="display:flex;flex-direction:column;align-items:flex-start">
+                        <div class="title">New Contact Form</div>
+                        <div class="muted">A new submission was received</div>
+                      </div>
+                    </td>
+                    <td style="vertical-align:middle;padding:0 24px;text-align:right">
+                      <div class="meta">ID: <strong style="color:#e6eef6">${id}</strong></div>
+                      <div class="meta" style="margin-top:6px">${new Date().toLocaleString()}</div>
+                    </td>
+                  </tr>
+                </table>
               </div>
 
-              <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-                <a href="mailto:${email}" style="display:inline-block;background:${TOKENS.primary};color:${TOKENS.primaryText};padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px">Reply: ${email || '—'}</a>
-                <div style="color:${TOKENS.muted};font-size:13px">Received: <strong style="color:${TOKENS.heading}">${new Date().toLocaleString()}</strong></div>
+              <!-- Body -->
+              <div class="body" style="display:block">
+                <div style="padding:0 24px">
+                  <div class="subject">${subject || 'Contact form submission'}</div>
+
+                  <div class="grid" style="margin-top:8px">
+                    <div class="pill">
+                      <div class="label">Name</div>
+                      <div class="value">${name || '—'}</div>
+                    </div>
+                    <div class="pill">
+                      <div class="label">Email</div>
+                      <div class="value"><a href="mailto:${email}" style="color:#7feaea;text-decoration:none">${email || '—'}</a></div>
+                    </div>
+                  </div>
+
+                  <div class="messageBox" role="article" aria-label="Message content">
+                    <div style="font-weight:700;color:#ffd39b;margin-bottom:8px">Message</div>
+                    <div style="color:#cbd5db">${safeMessage}</div>
+                  </div>
+
+                  <div class="ctaRow" style="padding:0 0 22px 0">
+                    <a class="btn" href="mailto:${email}">Reply: ${email}</a>
+                    <div class="metaSmall">Received: <strong style="color:#e6eef6">${new Date().toLocaleString()}</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Footer -->
+              <div class="foot">
+                You’re receiving this because someone submitted the contact form on your site.
+                <div style="margin-top:6px">© ${new Date().getFullYear()} Yogesh Mishra — <a href="https://yogijs.tech" style="color:#7feaea;text-decoration:none">yogijs.tech</a></div>
               </div>
             </td>
           </tr>
-
-          <tr>
-            <td style="padding:14px 22px;border-top:1px solid ${TOKENS.subtle};background:#fbfdff;font-size:13px;color:${TOKENS.muted};text-align:center">
-              You’re receiving this because someone submitted the contact form on your site.
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding:14px 22px;background:${TOKENS.heading};color:${TOKENS.primaryText};text-align:center;font-size:13px;">
-              <div style="opacity:0.95">© ${new Date().getFullYear()} Yogesh Mishra — <a href="https://yogijs.tech" style="color:inherit;text-decoration:underline">${'yogijs.tech'}</a></div>
-            </td>
-          </tr>
-
         </table>
       </td>
     </tr>
@@ -109,6 +137,7 @@ function adminHtmlTemplate({ id, name, email, subject, message, logoUrl }: any) 
 </body>
 </html>`;
 }
+
 
 function userHtmlTemplate({ name, message, logoUrl }: any) {
   const safeMessage = (message || '').replace(/\n/g, '<br/>') || '—';
