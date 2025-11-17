@@ -1,4 +1,20 @@
 export default ({ env }) => ({
-  // This will log the value or 'undefined' if not set
-  myVariable: env('MY_VARIABLE_NAME', 'default-value'),
+    email: {
+    config: {
+      provider: 'nodemailer',
+      providerOptions: {
+        host: env('SMTP_HOST', 'smtp.gmail.com'),
+        port: 587,
+        secure: false,
+        auth: {
+          user: env('SMTP_USERNAME'),
+          pass: env('SMTP_PASSWORD'),
+        },
+      },
+      settings: {
+        defaultFrom: env('DEFAULT_FROM_EMAIL'),
+        defaultReplyTo: env('DEFAULT_REPLY_TO_EMAIL'),
+      },
+    },
+  }
 });
