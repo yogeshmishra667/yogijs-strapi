@@ -11,10 +11,6 @@ export default ({ env }) => ({
           pass: env('SMTP_PASSWORD'),
         },
       },
-      settings: {
-        defaultFrom: env('DEFAULT_FROM_EMAIL'),
-        defaultReplyTo: env('DEFAULT_REPLY_TO_EMAIL'),
-      },
     },
   }
 });
