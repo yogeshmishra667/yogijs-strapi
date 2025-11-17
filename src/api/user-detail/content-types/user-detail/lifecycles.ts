@@ -248,7 +248,6 @@ export default {
       await strapi.plugin('email').service('email').send({
         to: process.env.DEFAULT_FROM_EMAIL,
         from: process.env.DEFAULT_FROM_EMAIL,
-        replyTo: email || undefined,
         subject: `New contact: ${name} — ${subject}`,
         html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
       });
