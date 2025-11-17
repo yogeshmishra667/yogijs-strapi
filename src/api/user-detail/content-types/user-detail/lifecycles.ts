@@ -197,95 +197,77 @@ function idRandom() {
 }
 
 export default {
-  async afterCreate(event: any) {
-    const { result } = event || {};
-    const id = result?.id;
-    const name = result?.name ?? 'Guest';
-    const email = result?.email ?? '';
-    const subject = result?.subject ?? 'Contact Form';
-    const message = (result?.message ?? '').toString();
+// replace your existing afterCreate with this
+async afterCreate(event: any) {
+  const { result } = event || {};
+  // MUST have a stable id — if not present, skip. DO NOT generate random ids.
+  const id = result?.id;
+  if (!id) {
+    strapi.log.warn('[lifecycles:user-detail] afterCreate: no id present — skipping email flow (will run again when id exists)');
+    return;
+  }
 
-    if (!id) {
-      strapi.log.warn('[lifecycles:user-detail] missing id — skipping');
+  const name = result?.name ?? 'Guest';
+  const email = result?.email ?? '';
+  const subject = result?.subject ?? 'Contact Form';
+  const message = (result?.message ?? '').toString();
+
+  const store = strapi.store({
+    environment: strapi.config.environment,
+    type: 'plugin',
+    name: 'user-detail-notifs',
+  });
+
+  const key = `user-detail:emailed:${id}`;
+
+  // idempotency check
+  try {
+    const already = await store.get({ key });
+    if (already) {
+      strapi.log.info(`[lifecycles:user-detail] skip: already emailed id=${id}`);
       return;
     }
+  } catch (err) {
+    // If store fails, log and continue — but this is rare.
+    strapi.log.error('[lifecycles:user-detail] store.get failed (continuing):', err);
+  }
 
-    const store = strapi.store({
-      environment: strapi.config.environment,
-      type: 'plugin',
-      name: 'user-detail-notifs',
+  strapi.log.info(`[lifecycles:user-detail] processing id=${id} name=${name} email=${email || '—'}`);
+
+  try {
+    // Admin notification (keep replyTo so you can respond to user)
+    await strapi.plugin('email').service('email').send({
+      to: process.env.DEFAULT_FROM_EMAIL,
+      from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
+      subject: `New contact: ${name} — ${subject}`,
+      html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
     });
+    strapi.log.info(`[lifecycles:user-detail] admin email sent id=${id}`);
 
-    const key = `emailed:${id}`;
-
-    // Try to claim
-    try {
-      const current = await store.get({ key });
-      if (current && current.status === 'done') {
-        strapi.log.info(`[lifecycles:user-detail] already done for id:${id} — skipping`);
-        return;
-      }
-      if (current && current.status === 'processing') {
-        const age = now() - (current.ts || 0);
-        if (age < LOCK_STALE_MS) {
-          strapi.log.info(`[lifecycles:user-detail] processing lock active for id:${id} (age=${age}ms) — skipping`);
-          return;
-        }
-        // stale lock — fallthrough and claim
-        strapi.log.warn(`[lifecycles:user-detail] stale processing lock for id:${id} (age=${age}ms) — reclaiming`);
-      }
-
-      // Claim the job: set processing immediately
-      await store.set({ key, value: { status: 'processing', ts: now() } });
-    } catch (err) {
-      // If store.get/set errors, log and try to continue — best-effort
-      strapi.log.error('[lifecycles:user-detail] store get/set failed while claiming (continuing):', err);
-    }
-
-    // Perform sends
-    try {
-      // send admin notification
+    // Confirmation to user (no replyTo here)
+    if (email) {
       await strapi.plugin('email').service('email').send({
-        to: process.env.DEFAULT_FROM_EMAIL,
-        from: process.env.DEFAULT_FROM_EMAIL,
-        subject: `New contact: ${name} — ${subject}`,
-        html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
+        to: email,
+        from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
+        subject: `Thanks for contacting — I’ll reply soon`,
+        html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
       });
-      strapi.log.info(`[lifecycles:user-detail] admin email sent for id:${id}`);
-
-      // send confirmation to user
-      if (email) {
-        await strapi.plugin('email').service('email').send({
-          to: email,
-          from: process.env.DEFAULT_FROM_EMAIL,
-          subject: `Thanks for contacting — I’ll reply soon`,
-          html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
-        });
-        strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user for id:${id}`);
-      } else {
-        strapi.log.warn(`[lifecycles:user-detail] no user email provided for id:${id} — skipped user confirmation`);
-      }
-
-      // mark done
-      try {
-        await store.set({ key, value: { status: 'done', ts: now() } });
-        strapi.log.info(`[lifecycles:user-detail] marked id:${id} as done`);
-      } catch (err) {
-        strapi.log.error('[lifecycles:user-detail] store.set failed when marking done:', err);
-      }
-    } catch (err) {
-      // If anything fails, remove the processing flag so future runs can retry.
-      strapi.log.error(`[lifecycles:user-detail] email flow failed for id:${id}:`, err);
-      try {
-        // Only clear if the value is processing (avoid clearing a done)
-        const current = await store.get({ key });
-        if (current && current.status === 'processing') {
-          await store.set({ key, value: null });
-          strapi.log.info(`[lifecycles:user-detail] cleared processing lock for id:${id} after failure`);
-        }
-      } catch (clearErr) {
-        strapi.log.error('[lifecycles:user-detail] failed to clear processing lock after failure:', clearErr);
-      }
+      strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user id=${id}`);
+    } else {
+      strapi.log.warn(`[lifecycles:user-detail] user email missing id=${id} — skipped confirmation`);
     }
-  },
+
+    // mark as sent AFTER successful sends
+    try {
+      await store.set({ key, value: true });
+      strapi.log.info(`[lifecycles:user-detail] marked id=${id} as emailed`);
+    } catch (err) {
+      strapi.log.error('[lifecycles:user-detail] store.set failed after sends:', err);
+    }
+  } catch (err) {
+    // Do not mark as emailed if sends failed — allow retry on next run.
+    strapi.log.error(`[lifecycles:user-detail] email flow failed for id=${id}:`, err);
+  }
+}
+
 };
