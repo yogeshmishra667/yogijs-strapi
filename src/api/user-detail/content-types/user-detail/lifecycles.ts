@@ -1,154 +1,166 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * src/api/user-detail/content-types/user-detail/lifecycles.ts
+ * Refined, modern + accessible email templates (admin + user)
+ * Place at: src/api/user-detail/content-types/user-detail/lifecycles.ts
  *
- * - Idempotent afterCreate lifecycle (uses strapi.store)
- * - Modern, responsive HTML templates with embedded logo
- * - Logo is hard-coded from your Google Drive file (preview URL)
- *
- * NOTE: If the Drive link stops showing in some email clients, upload the image
- * to a public CDN (S3/Cloudinary) and replace LOGO_URL with that URL.
+ * Keep DEFAULT_FROM_EMAIL in env. LOGO_URL is hard-coded to your Drive image (can replace).
  */
 
 declare const strapi: any;
+const LOGO_URL = 'https://drive.google.com/uc?export=view&id=1a41Fxnl2dhf-CHpKXHzZNNraFztC2mSA';
 
-// Direct Google Drive preview URL (hard-coded as requested)
-const LOGO_URL =
-  'https://drive.google.com/uc?export=view&id=1a41Fxnl2dhf-CHpKXHzZNNraFztC2mSA';
+const LOCK_STALE_MS = 2 * 60 * 1000; // 2 minutes — tune if needed
 
-function adminHtmlTemplate({ name, email, subject, message, logoUrl }: any) {
-  const safeMessage = (message || '').replace(/\n/g, '<br/>');
-  const logoSection = logoUrl
-    ? `<td style="padding:18px 0;text-align:left"><img src="${logoUrl}" alt="logo" width="120" style="display:block;border:0;outline:none;text-decoration:none"/></td>`
-    : '';
-  return `
-  <!doctype html>
-  <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>New Contact Submission</title>
-  </head>
-  <body style="margin:0;padding:0;background:#f4f6f8;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:32px 16px">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,0.08)">
-            <tr>
-              <td style="padding:20px 28px;border-bottom:1px solid #eef2f7">
-                <table width="100%" role="presentation">
-                  <tr>
-                    ${logoSection}
-                    <td style="text-align:right;padding-left:12px">
-                      <h3 style="margin:0;color:#0f172a;font-weight:700;font-size:16px">New Contact Form</h3>
-                      <p style="margin:2px 0 0;color:#475569;font-size:13px">Received a new submission</p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
+function now() {
+  return Date.now();
+}
 
-            <tr>
-              <td style="padding:28px">
-                <h2 style="margin:0 0 12px;color:#0f172a;font-size:18px">${subject || 'Contact form submission'}</h2>
 
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px">
-                  <tr>
-                    <td style="vertical-align:top;padding:8px 12px;background:#f8fafc;border-radius:8px">
-                      <strong style="display:block;color:#0f172a">Name</strong>
-                      <div style="color:#475569">${name || '—'}</div>
-                    </td>
-                    <td style="vertical-align:top;padding:8px 12px;background:#f8fafc;border-radius:8px">
-                      <strong style="display:block;color:#0f172a">Email</strong>
-                      <div style="color:#475569">${email || '—'}</div>
-                    </td>
-                  </tr>
-                </table>
+// Colors & typography tokens (easy to tweak)
+const TOKENS = {
+  bg: '#f6f7fb',
+  card: '#ffffff',
+  muted: '#6b7280',
+  primary: '#0ea5a4',
+  primaryText: '#ffffff',
+  accent: '#f59e0b',
+  heading: '#0f172a',
+  subtle: '#eef2f6',
+};
 
-                <div style="margin-top:18px;padding:16px;background:#fff7ed;border-left:4px solid #f59e0b;border-radius:8px">
-                  <strong style="display:block;color:#92400e;margin-bottom:6px">Message</strong>
-                  <div style="color:#6b7280;line-height:1.5">${safeMessage}</div>
-                </div>
+// Preheader helper
+function preheader(text: string) {
+  return `<span style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${text}</span>`;
+}
 
-                <div style="margin-top:20px;display:flex;gap:8px;align-items:center">
-                  <a href="mailto:${email}" style="display:inline-block;padding:10px 16px;background:#0ea5a4;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600">Reply: ${email}</a>
-                  <span style="color:#94a3b8;font-size:13px">ID: <strong style="color:#0f172a">${idRandom()}</strong></span>
-                </div>
-              </td>
-            </tr>
+function adminHtmlTemplate({ id, name, email, subject, message, logoUrl }: any) {
+  const safeMessage = (message || '').replace(/\n/g, '<br/>') || '—';
+  const headPre = preheader(`New contact from ${name || 'Guest'} — ${subject || ''}`);
 
-            <tr>
-              <td style="padding:18px 28px;border-top:1px solid #eef2f7;background:#fbfdff">
-                <p style="margin:0;color:#64748b;font-size:13px">You’re receiving this because someone submitted the contact form on your site.</p>
-              </td>
-            </tr>
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>New Contact Form</title>
+</head>
+<body style="margin:0;background:${TOKENS.bg};font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${TOKENS.heading};-webkit-font-smoothing:antialiased;">
+  ${headPre}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;background:${TOKENS.card};border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,0.06)">
+          <tr>
+            <td style="padding:20px 24px;border-bottom:1px solid ${TOKENS.subtle};display:flex;align-items:center;gap:12px">
+              <img src="${logoUrl}" alt="Yogesh Mishra Logo" width="72" style="height:auto;display:block;border:0;outline:none;text-decoration:none;border-radius:8px"/>
+              <div style="flex:1">
+                <div style="font-weight:700;font-size:16px;color:${TOKENS.heading};margin-bottom:2px">New Contact Form</div>
+                <div style="color:${TOKENS.muted};font-size:13px">A new submission was received</div>
+              </div>
+              <div style="text-align:right;color:${TOKENS.muted};font-size:12px">ID: <strong style="color:${TOKENS.heading}">${id}</strong></div>
+            </td>
+          </tr>
 
-            <tr>
-              <td style="padding:16px 28px;background:#0f172a;color:#ffffff;text-align:center;font-size:13px">
-                <div style="opacity:.9">Yogesh Mishra • <span style="color:#9ca3af">yogijs.tech</span></div>
-              </td>
-            </tr>
+          <tr>
+            <td style="padding:22px">
+              <h2 style="margin:0 0 12px;font-size:18px;color:${TOKENS.heading};font-weight:700">${subject || 'Contact form submission'}</h2>
 
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
-  `;
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-collapse:separate;row-gap:8px">
+                <tr>
+                  <td style="vertical-align:top;padding:10px 12px;border-radius:8px;background:#fbfdff;border:1px solid ${TOKENS.subtle};width:48%;font-size:14px">
+                    <div style="font-weight:600;color:${TOKENS.heading};margin-bottom:6px">Name</div>
+                    <div style="color:${TOKENS.muted}">${name || '—'}</div>
+                  </td>
+                  <td style="vertical-align:top;padding:10px 12px;border-radius:8px;background:#fbfdff;border:1px solid ${TOKENS.subtle};width:48%;font-size:14px">
+                    <div style="font-weight:600;color:${TOKENS.heading};margin-bottom:6px">Email</div>
+                    <div style="color:${TOKENS.muted}"><a href="mailto:${email}" style="color:${TOKENS.primary};text-decoration:none">${email || '—'}</a></div>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="margin-top:18px;padding:16px;border-radius:10px;background:linear-gradient(90deg,#fff 0%, #fffbf5 100%);border-left:4px solid ${TOKENS.accent};color:#3b3b3b;line-height:1.6;font-size:14px">
+                <div style="font-weight:600;color:#7c3f00;margin-bottom:8px">Message</div>
+                <div>${safeMessage}</div>
+              </div>
+
+              <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+                <a href="mailto:${email}" style="display:inline-block;background:${TOKENS.primary};color:${TOKENS.primaryText};padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px">Reply: ${email || '—'}</a>
+                <div style="color:${TOKENS.muted};font-size:13px">Received: <strong style="color:${TOKENS.heading}">${new Date().toLocaleString()}</strong></div>
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:14px 22px;border-top:1px solid ${TOKENS.subtle};background:#fbfdff;font-size:13px;color:${TOKENS.muted};text-align:center">
+              You’re receiving this because someone submitted the contact form on your site.
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:14px 22px;background:${TOKENS.heading};color:${TOKENS.primaryText};text-align:center;font-size:13px;">
+              <div style="opacity:0.95">© ${new Date().getFullYear()} Yogesh Mishra — <a href="https://yogijs.tech" style="color:inherit;text-decoration:underline">${'yogijs.tech'}</a></div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 function userHtmlTemplate({ name, message, logoUrl }: any) {
-  const safeMessage = (message || '').replace(/\n/g, '<br/>');
-  const logoImg = logoUrl ? `<img src="${logoUrl}" alt="logo" width="110" style="display:block;margin:0 auto 8px"/>` : '';
-  return `
-  <!doctype html>
-  <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>Thanks for contacting</title>
-  </head>
-  <body style="margin:0;padding:0;background:#f4f6f8;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,0.06)">
-            <tr>
-              <td style="padding:28px;text-align:center">
-                ${logoImg}
-                <h1 style="margin:6px 0 4px;font-size:20px;color:#0f172a">Thanks, ${name || 'there'} 👋</h1>
-                <p style="margin:0;color:#64748b;font-size:14px">We got your message — I’ll get back to you within 24–48 hours.</p>
-              </td>
-            </tr>
+  const safeMessage = (message || '').replace(/\n/g, '<br/>') || '—';
+  const headPre = preheader('Thanks for contacting — I’ll get back to you within 24–48 hours');
 
-            <tr>
-              <td style="padding:18px 28px">
-                <div style="padding:16px;border-radius:10px;background:#f8fafc;color:#475569">
-                  <strong style="display:block;margin-bottom:8px;color:#0f172a">Here’s what we received</strong>
-                  <div style="line-height:1.6">${safeMessage}</div>
-                </div>
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Thanks for contacting</title>
+</head>
+<body style="margin:0;background:${TOKENS.bg};font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${TOKENS.heading};-webkit-font-smoothing:antialiased;">
+  ${headPre}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:${TOKENS.card};border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,0.06)">
+          <tr>
+            <td style="padding:28px 24px;text-align:center">
+              <img src="${logoUrl}" alt="Yogesh Mishra Logo" width="84" style="height:auto;display:block;border:0;outline:none;text-decoration:none;margin:0 auto 12px;border-radius:8px"/>
+              <h1 style="margin:0 0 6px;font-size:20px;color:${TOKENS.heading};font-weight:700">Thanks, ${name || 'there'} 👋</h1>
+              <p style="margin:0;color:${TOKENS.muted};font-size:14px">I got your message. I’ll reply within 24–48 hours.</p>
+            </td>
+          </tr>
 
-                <div style="margin-top:18px;text-align:center">
-                  <a href="https://yogijs.tech" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#0ea5a4;color:white;text-decoration:none;font-weight:600">Visit portfolio</a>
-                </div>
-              </td>
-            </tr>
+          <tr>
+            <td style="padding:18px 22px">
+              <div style="padding:16px;border-radius:10px;background:#fbfdff;border:1px solid ${TOKENS.subtle};color:${TOKENS.muted};font-size:14px;line-height:1.6">
+                <div style="font-weight:700;color:${TOKENS.heading};margin-bottom:8px">Here’s what I received</div>
+                <div>${safeMessage}</div>
+              </div>
 
-            <tr>
-              <td style="padding:18px 28px;border-top:1px solid #eef2f7;background:#fbfdff;text-align:center;color:#94a3b8;font-size:13px">
-                <div>Want to update your message? Reply to this email and I’ll see it.</div>
-                <div style="margin-top:8px">© ${new Date().getFullYear()} Yogesh Mishra — <a href="https://yogijs.tech" style="color:#0ea5a4;text-decoration:none">yogijs.tech</a></div>
-              </td>
-            </tr>
+              <div style="margin-top:18px;text-align:center">
+                <a href="https://yogijs.tech" style="display:inline-block;padding:10px 18px;border-radius:10px;background:${TOKENS.primary};color:${TOKENS.primaryText};text-decoration:none;font-weight:700;">Visit portfolio</a>
+              </div>
+            </td>
+          </tr>
 
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
-  `;
+          <tr>
+            <td style="padding:16px 22px;border-top:1px solid ${TOKENS.subtle};background:#fbfdff;text-align:center;color:${TOKENS.muted};font-size:13px">
+              Reply to this email to update your message — or visit <a href="https://yogijs.tech" style="color:${TOKENS.primary};text-decoration:none">yogijs.tech</a>.
+              <div style="margin-top:8px">© ${new Date().getFullYear()} Yogesh Mishra</div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 function idRandom() {
@@ -163,7 +175,6 @@ export default {
     const email = result?.email ?? '';
     const subject = result?.subject ?? 'Contact Form';
     const message = (result?.message ?? '').toString();
-    const logoUrl = LOGO_URL;
 
     if (!id) {
       strapi.log.warn('[lifecycles:user-detail] missing id — skipping');
@@ -178,50 +189,75 @@ export default {
 
     const key = `emailed:${id}`;
 
+    // Try to claim
     try {
-      const already = await store.get({ key });
-      if (already) {
-        strapi.log.info(`[lifecycles:user-detail] duplicate run — skipping id:${id}`);
+      const current = await store.get({ key });
+      if (current && current.status === 'done') {
+        strapi.log.info(`[lifecycles:user-detail] already done for id:${id} — skipping`);
         return;
       }
+      if (current && current.status === 'processing') {
+        const age = now() - (current.ts || 0);
+        if (age < LOCK_STALE_MS) {
+          strapi.log.info(`[lifecycles:user-detail] processing lock active for id:${id} (age=${age}ms) — skipping`);
+          return;
+        }
+        // stale lock — fallthrough and claim
+        strapi.log.warn(`[lifecycles:user-detail] stale processing lock for id:${id} (age=${age}ms) — reclaiming`);
+      }
+
+      // Claim the job: set processing immediately
+      await store.set({ key, value: { status: 'processing', ts: now() } });
     } catch (err) {
-      strapi.log.error('[lifecycles:user-detail] store.get failed (continuing):', err);
+      // If store.get/set errors, log and try to continue — best-effort
+      strapi.log.error('[lifecycles:user-detail] store get/set failed while claiming (continuing):', err);
     }
 
-    // Build and send emails
+    // Perform sends
     try {
-      // Admin notification
+      // send admin notification
       await strapi.plugin('email').service('email').send({
         to: process.env.DEFAULT_FROM_EMAIL,
         from: process.env.DEFAULT_FROM_EMAIL,
         replyTo: email || undefined,
         subject: `New contact: ${name} — ${subject}`,
-        html: adminHtmlTemplate({ name, email, subject, message, logoUrl }),
+        html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
       });
       strapi.log.info(`[lifecycles:user-detail] admin email sent for id:${id}`);
 
-      // Confirmation to user
+      // send confirmation to user
       if (email) {
         await strapi.plugin('email').service('email').send({
           to: email,
           from: process.env.DEFAULT_FROM_EMAIL,
           subject: `Thanks for contacting — I’ll reply soon`,
-          html: userHtmlTemplate({ name, message, logoUrl }),
+          html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
         });
         strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user for id:${id}`);
       } else {
         strapi.log.warn(`[lifecycles:user-detail] no user email provided for id:${id} — skipped user confirmation`);
       }
 
-      // Mark sent
+      // mark done
       try {
-        await store.set({ key, value: true });
-        strapi.log.info(`[lifecycles:user-detail] marked id:${id} as emailed`);
+        await store.set({ key, value: { status: 'done', ts: now() } });
+        strapi.log.info(`[lifecycles:user-detail] marked id:${id} as done`);
       } catch (err) {
-        strapi.log.error('[lifecycles:user-detail] store.set failed after sends:', err);
+        strapi.log.error('[lifecycles:user-detail] store.set failed when marking done:', err);
       }
     } catch (err) {
-      strapi.log.error('[lifecycles:user-detail] email flow failed:', err);
+      // If anything fails, remove the processing flag so future runs can retry.
+      strapi.log.error(`[lifecycles:user-detail] email flow failed for id:${id}:`, err);
+      try {
+        // Only clear if the value is processing (avoid clearing a done)
+        const current = await store.get({ key });
+        if (current && current.status === 'processing') {
+          await store.set({ key, value: null });
+          strapi.log.info(`[lifecycles:user-detail] cleared processing lock for id:${id} after failure`);
+        }
+      } catch (clearErr) {
+        strapi.log.error('[lifecycles:user-detail] failed to clear processing lock after failure:', clearErr);
+      }
     }
   },
 };
