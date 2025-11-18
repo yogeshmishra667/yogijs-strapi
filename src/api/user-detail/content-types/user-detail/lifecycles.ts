@@ -204,13 +204,35 @@ export default {
     const id = result?.id;
     
     if (!id) {
-      strapi.log.warn('[lifecycles:user-detail] afterCreate: no id present — skipping email flow');
+      strapi.log.warn('[lifecycles] no id — skipping');
       return;
     }
 
-    // LOCK: Check if already processing this ID
-    if (processingIds.has(id)) {
-      strapi.log.info(`[lifecycles:user-detail] skip: already processing id=${id}`);
+    // CRITICAL: Only process published entries (skip drafts)
+    if (!result?.publishedAt) {
+      strapi.log.info(`[lifecycles] skip draft id=${id}`);
+      return;
+    }
+
+    const key = `user-detail:emailed:${id}`;
+    const store = strapi.store({
+      environment: strapi.config.environment,
+      type: 'plugin',
+      name: 'user-detail-notifs',
+    });
+
+    // Atomic idempotency check + lock
+    try {
+      const existing = await store.get({ key });
+      if (existing) {
+        strapi.log.info(`[lifecycles] already sent id=${id}`);
+        return;
+      }
+      
+      // Lock BEFORE sending emails
+      await store.set({ key, value: { sent: true, at: Date.now() } });
+    } catch (err) {
+      strapi.log.error(`[lifecycles] store lock failed id=${id}:`, err);
       return;
     }
 
@@ -219,68 +241,39 @@ export default {
     const subject = result?.subject ?? 'Contact Form';
     const message = (result?.message ?? '').toString();
 
-    const store = strapi.store({
-      environment: strapi.config.environment,
-      type: 'plugin',
-      name: 'user-detail-notifs',
-    });
-
-    const key = `user-detail:emailed:${id}`;
-
-    // Idempotency check in store
-    try {
-      const already = await store.get({ key });
-      if (already) {
-        strapi.log.info(`[lifecycles:user-detail] skip: already emailed id=${id}`);
-        return;
-      }
-    } catch (err) {
-      strapi.log.error('[lifecycles:user-detail] store.get failed (continuing):', err);
-    }
-
-    // ADD to processing set BEFORE doing anything
-    processingIds.add(id);
-    strapi.log.info(`[lifecycles:user-detail] processing id=${id} name=${name} email=${email || '—'}`);
+    strapi.log.info(`[lifecycles] sending emails id=${id} name=${name}`);
 
     try {
-      // MARK as sent BEFORE sending emails (more aggressive idempotency)
-      await store.set({ key, value: true });
-      strapi.log.info(`[lifecycles:user-detail] marked id=${id} as emailed (pre-send)`);
-
-      // Admin notification
+      // Admin email
       await strapi.plugin('email').service('email').send({
         to: process.env.DEFAULT_FROM_EMAIL,
         from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
         subject: `New contact: ${name} — ${subject}`,
         html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
       });
-      strapi.log.info(`[lifecycles:user-detail] admin email sent id=${id}`);
 
-      // Confirmation to user
+      // User confirmation
       if (email) {
         await strapi.plugin('email').service('email').send({
           to: email,
-          from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
+          from: `Yogesh Mishra <${process.env.DEFAULT_EMAIL}>`,
           subject: `Thanks for contacting — I'll reply soon`,
           html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
         });
-        strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user id=${id}`);
-      } else {
-        strapi.log.warn(`[lifecycles:user-detail] user email missing id=${id} — skipped confirmation`);
       }
+
+      strapi.log.info(`[lifecycles] emails sent id=${id}`);
     } catch (err) {
-      strapi.log.error(`[lifecycles:user-detail] email flow failed for id=${id}:`, err);
-      // ROLLBACK: Remove from store if emails failed
+      strapi.log.error(`[lifecycles] email failed id=${id}:`, err);
+      
+      // Rollback lock on failure
       try {
         await store.delete({ key });
-        strapi.log.info(`[lifecycles:user-detail] rolled back store flag for id=${id}`);
+        strapi.log.info(`[lifecycles] rolled back lock id=${id}`);
       } catch (rollbackErr) {
-        strapi.log.error('[lifecycles:user-detail] rollback failed:', rollbackErr);
+        strapi.log.error('[lifecycles] rollback failed:', rollbackErr);
       }
-    } finally {
-      // ALWAYS remove from processing set
-      processingIds.delete(id);
-      strapi.log.info(`[lifecycles:user-detail] released lock for id=${id}`);
     }
   }
 };
+
