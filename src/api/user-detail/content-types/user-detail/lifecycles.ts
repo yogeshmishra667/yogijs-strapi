@@ -6,6 +6,8 @@
  * Keep DEFAULT_FROM_EMAIL in env. LOGO_URL is hard-coded to your Drive image (can replace).
  */
 
+// At the top of your file, outside the export
+const processingIds = new Set<string>();
 declare const strapi: any;
 const LOGO_URL = 'https://drive.google.com/uc?export=view&id=1a41Fxnl2dhf-CHpKXHzZNNraFztC2mSA';
 
@@ -126,7 +128,7 @@ function adminHtmlTemplate({ id, name, email, subject, message, logoUrl }: any) 
               <!-- Footer -->
               <div class="foot">
                 You’re receiving this because someone submitted the contact form on your site.
-                <div style="margin-top:6px">© ${new Date().getFullYear()} Yogesh Mishra — <a href="https://yogijs.tech" style="color:#7feaea;text-decoration:none">yogijs.tech</a></div>
+                <div style="margin-top:6px">© ${new Date().getFullYear()} Built With 💙 By Yogesh Mishra — <a href="https://yogijs.tech" style="color:#7feaea;text-decoration:none">yogijs.tech</a></div>
               </div>
             </td>
           </tr>
@@ -180,7 +182,7 @@ function userHtmlTemplate({ name, message, logoUrl }: any) {
           <tr>
             <td style="padding:16px 22px;border-top:1px solid ${TOKENS.subtle};background:#fbfdff;text-align:center;color:${TOKENS.muted};font-size:13px">
               Reply to this email to update your message — or visit <a href="https://yogijs.tech" style="color:${TOKENS.primary};text-decoration:none">yogijs.tech</a>.
-              <div style="margin-top:8px">© ${new Date().getFullYear()} Yogesh Mishra</div>
+              <div style="margin-top:8px">© ${new Date().getFullYear()} Built With 💙 By Yogesh Mishra</div>
             </td>
           </tr>
 
@@ -197,77 +199,88 @@ function idRandom() {
 }
 
 export default {
-// replace your existing afterCreate with this
-async afterCreate(event: any) {
-  const { result } = event || {};
-  // MUST have a stable id — if not present, skip. DO NOT generate random ids.
-  const id = result?.id;
-  if (!id) {
-    strapi.log.warn('[lifecycles:user-detail] afterCreate: no id present — skipping email flow (will run again when id exists)');
-    return;
-  }
-
-  const name = result?.name ?? 'Guest';
-  const email = result?.email ?? '';
-  const subject = result?.subject ?? 'Contact Form';
-  const message = (result?.message ?? '').toString();
-
-  const store = strapi.store({
-    environment: strapi.config.environment,
-    type: 'plugin',
-    name: 'user-detail-notifs',
-  });
-
-  const key = `user-detail:emailed:${id}`;
-
-  // idempotency check
-  try {
-    const already = await store.get({ key });
-    if (already) {
-      strapi.log.info(`[lifecycles:user-detail] skip: already emailed id=${id}`);
+  async afterCreate(event: any) {
+    const { result } = event || {};
+    const id = result?.id;
+    
+    if (!id) {
+      strapi.log.warn('[lifecycles:user-detail] afterCreate: no id present — skipping email flow');
       return;
     }
-  } catch (err) {
-    // If store fails, log and continue — but this is rare.
-    strapi.log.error('[lifecycles:user-detail] store.get failed (continuing):', err);
-  }
 
-  strapi.log.info(`[lifecycles:user-detail] processing id=${id} name=${name} email=${email || '—'}`);
+    // LOCK: Check if already processing this ID
+    if (processingIds.has(id)) {
+      strapi.log.info(`[lifecycles:user-detail] skip: already processing id=${id}`);
+      return;
+    }
 
-  try {
-    // Admin notification (keep replyTo so you can respond to user)
-    await strapi.plugin('email').service('email').send({
-      to: process.env.DEFAULT_FROM_EMAIL,
-      from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
-      subject: `New contact: ${name} — ${subject}`,
-      html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
+    const name = result?.name ?? 'Guest';
+    const email = result?.email ?? '';
+    const subject = result?.subject ?? 'Contact Form';
+    const message = (result?.message ?? '').toString();
+
+    const store = strapi.store({
+      environment: strapi.config.environment,
+      type: 'plugin',
+      name: 'user-detail-notifs',
     });
-    strapi.log.info(`[lifecycles:user-detail] admin email sent id=${id}`);
 
-    // Confirmation to user (no replyTo here)
-    if (email) {
-      await strapi.plugin('email').service('email').send({
-        to: email,
-        from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
-        subject: `Thanks for contacting — I’ll reply soon`,
-        html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
-      });
-      strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user id=${id}`);
-    } else {
-      strapi.log.warn(`[lifecycles:user-detail] user email missing id=${id} — skipped confirmation`);
-    }
+    const key = `user-detail:emailed:${id}`;
 
-    // mark as sent AFTER successful sends
+    // Idempotency check in store
     try {
-      await store.set({ key, value: true });
-      strapi.log.info(`[lifecycles:user-detail] marked id=${id} as emailed`);
+      const already = await store.get({ key });
+      if (already) {
+        strapi.log.info(`[lifecycles:user-detail] skip: already emailed id=${id}`);
+        return;
+      }
     } catch (err) {
-      strapi.log.error('[lifecycles:user-detail] store.set failed after sends:', err);
+      strapi.log.error('[lifecycles:user-detail] store.get failed (continuing):', err);
     }
-  } catch (err) {
-    // Do not mark as emailed if sends failed — allow retry on next run.
-    strapi.log.error(`[lifecycles:user-detail] email flow failed for id=${id}:`, err);
-  }
-}
 
+    // ADD to processing set BEFORE doing anything
+    processingIds.add(id);
+    strapi.log.info(`[lifecycles:user-detail] processing id=${id} name=${name} email=${email || '—'}`);
+
+    try {
+      // MARK as sent BEFORE sending emails (more aggressive idempotency)
+      await store.set({ key, value: true });
+      strapi.log.info(`[lifecycles:user-detail] marked id=${id} as emailed (pre-send)`);
+
+      // Admin notification
+      await strapi.plugin('email').service('email').send({
+        to: process.env.DEFAULT_FROM_EMAIL,
+        from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
+        subject: `New contact: ${name} — ${subject}`,
+        html: adminHtmlTemplate({ id, name, email, subject, message, logoUrl: LOGO_URL }),
+      });
+      strapi.log.info(`[lifecycles:user-detail] admin email sent id=${id}`);
+
+      // Confirmation to user
+      if (email) {
+        await strapi.plugin('email').service('email').send({
+          to: email,
+          from: `Yogesh Mishra <${process.env.DEFAULT_FROM_EMAIL}>`,
+          subject: `Thanks for contacting — I'll reply soon`,
+          html: userHtmlTemplate({ name, message, logoUrl: LOGO_URL }),
+        });
+        strapi.log.info(`[lifecycles:user-detail] confirmation email sent to user id=${id}`);
+      } else {
+        strapi.log.warn(`[lifecycles:user-detail] user email missing id=${id} — skipped confirmation`);
+      }
+    } catch (err) {
+      strapi.log.error(`[lifecycles:user-detail] email flow failed for id=${id}:`, err);
+      // ROLLBACK: Remove from store if emails failed
+      try {
+        await store.delete({ key });
+        strapi.log.info(`[lifecycles:user-detail] rolled back store flag for id=${id}`);
+      } catch (rollbackErr) {
+        strapi.log.error('[lifecycles:user-detail] rollback failed:', rollbackErr);
+      }
+    } finally {
+      // ALWAYS remove from processing set
+      processingIds.delete(id);
+      strapi.log.info(`[lifecycles:user-detail] released lock for id=${id}`);
+    }
+  }
 };
